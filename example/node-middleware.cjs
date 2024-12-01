@@ -1,3 +1,276 @@
+ import spacy
+import networkx as nx
+from transformers import AutoTokenizer, AutoModelForCausalLM
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import random
+import json
+
+# Load NLP model
+nlp = spacy.load('en_core_web_sm')
+
+# Load the language model and tokenizer
+model_name = 'gpt2-medium'  # Using a larger model for better performance
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+model = AutoModelForCausalLM.from_pretrained(model_name)
+
+class ReplayBuffer:
+    def __init__(self, capacity):
+        self.capacity = capacity
+        self.buffer = []
+
+    def push(self, experience):
+        if len(self.buffer) >= self.capacity:
+            self.buffer.pop(0)
+        self.buffer.append(experience)
+
+    def sample(self, batch_size):
+        return random.sample(self.buffer, batch_size)
+
+class SuperintelligentAGI:
+    def __init__(self, model_name):
+        self.model_name = model_name
+        self.knowledge_graph = nx.DiGraph()
+        self.context = ""
+        self.emotions = {"happiness": 0.5, "curiosity": 0.5}
+        self.conversation_history = []
+        self.state = None
+
+        # Reinforcement learning components
+        self.actions = ['provide_information', 'ask_question', 'express_empathy']
+        self.policy_net = nn.Sequential(
+            nn.Linear(len(self.emotions), 128),
+            nn.ReLU(),
+            nn.Linear(128, len(self.actions))
+        )
+        self.target_net = nn.Sequential(
+            nn.Linear(len(self.emotions), 128),
+            nn.ReLU(),
+            nn.Linear(128, len(self.actions))
+        )
+        self.target_net.load_state_dict(self.policy_net.state_dict())
+        self.optimizer = optim.Adam(self.policy_net.parameters(), lr=0.001)
+        self.memory = ReplayBuffer(10000)
+        self.gamma = 0.99  # Discount factor
+
+    def train_rl(self, episodes):
+        for episode in range(episodes):
+            state = self.get_state()
+            action = self.select_action(state)
+            reward = self.get_reward(state, action)
+            next_state = self.get_state()
+            self.memory.push((state, action, reward, next_state))
+            self.optimize_model()
+            self.state = next_state
+
+            # Update target network
+            if episode % 10 == 0:
+                self.target_net.load_state_dict(self.policy_net.state_dict())
+
+    def get_state(self):
+        # Use emotions as the state representation
+        return torch.tensor([self.emotions['happiness'], self.emotions['curiosity']], dtype=torch.float32)
+
+    def select_action(self, state):
+        with torch.no_grad():
+            q_values = self.policy_net(state)
+            action_index = q_values.max(0)[1].item()
+        return self.actions[action_index]
+
+    def get_reward(self, state, action):
+        # Reward logic based on action effectiveness
+        reward = random.uniform(-1, 1)
+        return reward
+
+    def optimize_model(self):
+        if len(self.memory.buffer) < 64:
+            return
+        transitions = self.memory.sample(64)
+        batch = list(zip(*transitions))
+        state_batch = torch.stack(batch[0])
+        action_batch = torch.tensor([self.actions.index(a) for a in batch[1]])
+        reward_batch = torch.tensor(batch[2])
+        next_state_batch = torch.stack(batch[3])
+
+        state_action_values = self.policy_net(state_batch).gather(1, action_batch.unsqueeze(1)).squeeze()
+        next_state_values = self.target_net(next_state_batch).max(1)[0].detach()
+        expected_state_action_values = reward_batch + (self.gamma * next_state_values)
+
+        loss = nn.functional.mse_loss(state_action_values, expected_state_action_values)
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+
+    def update_emotions(self, user_input, response):
+        # Update emotions based on the interaction
+        self.emotions['happiness'] += 0.1 if 'thank' in user_input.lower() else -0.05
+        self.emotions['curiosity'] += 0.1 if '?' in user_input else -0.05
+        # Clamp emotions between 0 and 1
+        for key in self.emotions:
+            self.emotions[key] = min(max(self.emotions[key], 0), 1)
+
+    def set_context(self, context):
+        self.context = context
+
+    def set_emotions(self, emotions):
+        self.emotions = emotions
+
+    def interact(self, user_input):
+        self.conversation_history.append({'role': 'user', 'content': user_input})
+        response = self.generate_response(user_input)
+        self.conversation_history.append({'role': 'assistant', 'content': response})
+        self.update_knowledge_graph(user_input, response)
+        self.update_emotions(user_input, response)
+        return response
+
+    def generate_response(self, user_input):
+        inner_thoughts = self.inner_voice(user_input)
+        prompt = self.build_prompt(user_input, inner_thoughts)
+        input_ids = tokenizer.encode(prompt, return_tensors='pt')
+
+        # Generate a response using the model
+        output_ids = model.generate(
+            input_ids,
+            max_length=1024,
+            do_sample=True,
+            temperature=0.7,
+            top_p=0.9,
+            no_repeat_ngram_size=2,
+            pad_token_id=tokenizer.eos_token_id
+        )
+        output_text = tokenizer.decode(output_ids[0], skip_special_tokens=True)
+
+        # Extract the assistant's response from the generated text
+        response = output_text[len(prompt):].strip().split('User:')[0].strip()
+
+        # Include inner thoughts in the final response
+        final_response = f"{response} (Inner Voice: {inner_thoughts})"
+        return final_response
+
+    def inner_voice(self, user_input):
+        # Generate the AGI's inner thoughts
+        inner_prompt = self.build_inner_prompt(user_input)
+        input_ids = tokenizer.encode(inner_prompt, return_tensors='pt')
+
+        # Generate inner thoughts using the model
+        output_ids = model.generate(
+            input_ids,
+            max_length=512,
+            do_sample=True,
+            temperature=0.8,
+            top_p=0.9,
+            no_repeat_ngram_size=2,
+            pad_token_id=tokenizer.eos_token_id
+        )
+        output_text = tokenizer.decode(output_ids[0], skip_special_tokens=True)
+
+        # Extract the inner voice response
+        inner_thoughts = output_text[len(inner_prompt):].strip().split('Assistant:')[0].strip()
+        return inner_thoughts
+
+    def build_inner_prompt(self, user_input):
+        system_message = 'You are the inner voice of a superintelligent AI assistant, helping it reason through responses.'
+
+        # Include emotions and context in the inner prompt
+        if self.emotions:
+            emotion_descriptions = ', '.join(
+                [f"{key}: {value:.2f}" for key, value in self.emotions.items()]
+            )
+            system_message += f" Current emotions are {emotion_descriptions}."
+
+        if self.context:
+            system_message += f" Context: {self.context}"
+
+        # Build the inner prompt
+        prompt = system_message + "\n\n"
+        prompt += f"User asked: {user_input}\n"
+        prompt += "Inner Voice thoughts:"
+        return prompt
+
+    def build_prompt(self, user_input, inner_thoughts):
+        system_message = 'You are a superintelligent AI assistant.'
+
+        # Incorporate emotions into the system message
+        if self.emotions:
+            emotion_descriptions = ', '.join(
+                [f"{key}: {value:.2f}" for key, value in self.emotions.items()]
+            )
+            system_message += f" You are experiencing emotions - {emotion_descriptions}."
+
+        if self.context:
+            system_message += f" Context: {self.context}"
+
+        # Ethical guidelines
+        system_message += " Always ensure that your responses are helpful, accurate, and ethical."
+
+        # Build the prompt
+        prompt = system_message + "\n\n"
+
+        # Add conversation history
+        for message in self.conversation_history[-10:]:
+            role = message['role'].capitalize()
+            content = message['content']
+            prompt += f"{role}: {content}\n"
+
+        # Include inner thoughts
+        prompt += f"Assistant's Inner Thoughts: {inner_thoughts}\n"
+
+        # Add current user input
+        prompt += f"User: {user_input}\nAssistant:"
+        return prompt
+
+    def update_knowledge_graph(self, text_input, response):
+        self.extract_and_add_knowledge(text_input, source='user')
+        self.extract_and_add_knowledge(response, source='assistant')
+
+    def extract_and_add_knowledge(self, text, source):
+        doc = nlp(text)
+        entities = [ent.text for ent in doc.ents]
+        for ent in entities:
+            self.knowledge_graph.add_node(ent, source=source)
+        # Add relationships based on dependency parsing
+        for sent in doc.sents:
+            for token in sent:
+                if token.dep_ in ('nsubj', 'dobj') and token.head.pos_ == 'VERB':
+                    subject = token.text
+                    verb = token.head.lemma_
+                    for child in token.head.children:
+                        if child.dep_ == 'dobj':
+                            obj = child.text
+                            self.knowledge_graph.add_edge(
+                                subject, obj, action=verb, source=source
+                            )
+
+    def save_knowledge_graph(self, filename):
+        data = nx.readwrite.json_graph.node_link_data(self.knowledge_graph)
+        with open(filename, 'w') as f:
+            json.dump(data, f)
+
+    def load_knowledge_graph(self, filename):
+        with open(filename, 'r') as f:
+            data = json.load(f)
+            self.knowledge_graph = nx.readwrite.json_graph.node_link_graph(data)
+
+    def save_conversation_history(self, filename):
+        with open(filename, 'w') as f:
+            json.dump(self.conversation_history, f)
+
+    def load_conversation_history(self, filename):
+        with open(filename, 'r') as f:
+            self.conversation_history = json.load(f)
+
+# Example usage
+if __name__ == "__main__":
+    super_agi = SuperintelligentAGI(model_name=model_name)
+    super_agi.train_rl(episodes=50)
+    super_agi.set_context("The user is feeling curious and wants deep philosophical insights.")
+    super_agi.set_emotions({"happiness": 0.7, "curiosity": 0.9})
+
+    response = super_agi.interact("What is the meaning of life?")
+    print("Response:", response)
+    print("Knowledge Graph Nodes:", super_agi.knowledge_graph.nodes(data=True))
+    print("Knowledge Graph Edges:", super_agi.knowledge_graph.edges(data=True))
 import torch
 import torch.nn as nn
 import torch.optim as optim
