@@ -1,3 +1,20 @@
+ from transformers import pipeline
+
+class Eos:
+    # ... (existing code) ...
+
+    def advanced_nlp(self, text):
+        # ... (existing NLP code) ...
+
+        # Sentiment Analysis
+        classifier = pipeline("sentiment-analysis") 
+        sentiment_result = classifier(text)[0]
+        response += f"\nSentiment: {sentiment_result['label']} (Score: {sentiment_result['score']:.2f})"
+
+        return response
+
+    # ... (rest of the code) ...
+
 def integrate_real_time_data(self, data_source, params=None):
     try:
         if data_source == "weather API":
