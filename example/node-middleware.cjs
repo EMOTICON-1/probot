@@ -1,3 +1,17 @@
+def integrate_real_time_data(self, data_source, params=None):
+    try:
+        if data_source == "weather API":
+            city = params.get("city", "London")
+            api_key = params.get("api_key", "YOUR_API_KEY")
+            url = f"http://api.openweathermap.org/data/2.5/weather?q={city}&appid={api_key}"
+            response = requests.get(url)
+            data = response.json()
+        else:
+            data = f"Fetched data from {data_source}"
+        self.past_data.append(data)
+        self.log_event(f"Integrated real-time data: {data}")
+    except Exception as e:
+        self.log_event(f"Error integrating real-time data from {data_source}: {e}") 
  import spacy
 import networkx as nx
 from transformers import AutoTokenizer, AutoModelForCausalLM
